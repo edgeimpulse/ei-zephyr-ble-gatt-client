@@ -1,0 +1,25 @@
+mainmenu "Edge Impulse BLE GATT Client"
+
+config EI_SENSOR_LOCAL
+	bool "Local sensor collection mode"
+	depends on SENSOR
+	default n
+	help
+	  When enabled the device reads on-board sensors directly instead of
+	  acting as a BLE central that connects to an EI-Golioth peripheral.
+	  Collected data is streamed over BLE GATT to an Android central, and
+	  (optionally) fed into a locally-deployed EI impulse if a model/ is
+	  present at build time.
+	  Disabled by default; enabled automatically via boards/*.conf for
+	  boards with on-board IMU (e.g. arduino_nano_33_ble).
+
+config EI_SENSOR_SAMPLE_INTERVAL_MS
+	int "Sensor sampling interval (ms)"
+	depends on EI_SENSOR_LOCAL
+	default 10
+	range 1 1000
+	help
+	  How often to read the on-board sensors. Default is 10 ms (100 Hz).
+	  Decrease for finer-resolution EI models; increase to save power.
+
+source "Kconfig.zephyr"

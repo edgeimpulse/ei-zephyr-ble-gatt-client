@@ -10,6 +10,7 @@
 #include <zephyr/logging/log.h>
 #include "ble/gatt_client.h"
 #include "ble/gatt_server.h"
+#include "sensors/ei_sensor.h"
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -71,28 +72,66 @@ int main(void)
     printk("\n");
     printk("========================================\n");
     printk("  Edge Impulse BLE GATT Client\n");
-    printk("  Monitoring EI-Golioth IMU Devices\n");
+
+#ifdef CONFIG_EI_SENSOR_LOCAL
+    printk("  Mode: Local Sensor Collection\n");
+    printk("  Board: Arduino Nano 33 BLE Sense\n");
+#else
+    printk("  Mode: BLE Relay (EI-Golioth Monitor)\n");
+#endif
+
     printk("========================================\n\n");
 
-    // Initialize BLE GATT client
+    /*
+     * gatt_client_init() calls bt_enable() which is needed in both modes.
+     * In local-sensor mode we skip start_scan() and drive the sensor loop
+     * instead.
+     */
     int err = gatt_client_init();
     if (err) {
-        printk("ERROR: GATT client init failed: %d\n", err);
+        printk("ERROR: BLE init failed: %d\n", err);
         return err;
     }
 
-    // Register callbacks
-    gatt_client_register_inference_callback(on_inference_received);
-    gatt_client_register_connection_callback(on_connection_changed);
-    gatt_client_register_sensor_callback(on_sensor_data_received);
-
-    // Start the GATT server so Android can connect and receive relayed data
+    /* Start the GATT server so Android can connect and receive data */
     err = gatt_server_init();
     if (err) {
         printk("WARNING: GATT server init failed: %d (continuing)\n", err);
     }
 
-    // Start scanning for EI-Golioth devices
+#ifdef CONFIG_EI_SENSOR_LOCAL
+    /*
+     * Local sensor mode — Arduino Nano 33 BLE Sense (or any board with
+     * an on-board IMU declared in the devicetree).
+     *
+     * Sensors sampled at CONFIG_EI_SENSOR_SAMPLE_INTERVAL_MS (default 10 ms
+     * = 100 Hz). Raw data is streamed to Android; if an EI model is present
+     * at build time inference results are also notified.
+     */
+    err = ei_sensor_init();
+    if (err) {
+        printk("ERROR: Sensor init failed: %d\n", err);
+        return err;
+    }
+
+    printk("Starting local sensor collection (sampling every %d ms)...\n\n",
+           CONFIG_EI_SENSOR_SAMPLE_INTERVAL_MS);
+
+    /* Does not return */
+    ei_sensor_run_loop();
+
+#else
+    /*
+     * Relay mode — Thingy:53 (or any board without on-board IMU).
+     *
+     * Scans for an "EI-Golioth" BLE peripheral, subscribes to inference
+     * and sensor notifications, then re-advertises them to an Android central
+     * via the GATT server.
+     */
+    gatt_client_register_inference_callback(on_inference_received);
+    gatt_client_register_connection_callback(on_connection_changed);
+    gatt_client_register_sensor_callback(on_sensor_data_received);
+
     printk("Scanning for EI-Golioth devices...\n\n");
     err = gatt_client_start_scan();
     if (err) {
@@ -100,10 +139,10 @@ int main(void)
         return err;
     }
 
-    // Main loop - just keep alive
     while (1) {
         k_sleep(K_SECONDS(1));
     }
+#endif
 
     return 0;
 }

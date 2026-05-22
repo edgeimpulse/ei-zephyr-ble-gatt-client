@@ -1,0 +1,39 @@
+/*
+ * Arduino Nano 33 BLE Sense — application board overlay.
+ *
+ * All on-board sensors are already declared in the Zephyr board DTS.
+ * This overlay ensures they are active and sets parameters suitable
+ * for Edge Impulse data collection.
+ *
+ * Sensors on the Arduino Nano 33 BLE Sense (nRF52840):
+ *   LSM9DS1 @ 0x6B  — accelerometer + gyroscope   (compatible: st,lsm9ds1)
+ *   LSM9DS1 @ 0x1E  — magnetometer                (compatible: st,lsm9ds1-magn)
+ *   HTS221  @ 0x5F  — temperature + humidity       (compatible: st,hts221)
+ *   LPS22HB @ 0x5C  — barometric pressure          (compatible: st,lps22hb-press)
+ *   APDS9960 @ 0x39 — proximity / colour / gesture (compatible: avago,apds9960)
+ */
+
+/* Accelerometer + Gyroscope */
+&lsm9ds1_accelgyro {
+	status = "okay";
+};
+
+/* Magnetometer */
+&lsm9ds1_magn {
+	status = "okay";
+};
+
+/* Temperature + Humidity */
+&hts221 {
+	status = "okay";
+};
+
+/* Barometric Pressure */
+&lps22hb_press {
+	status = "okay";
+};
+
+/* Proximity / Colour / Gesture */
+&apds9960 {
+	status = "okay";
+};
