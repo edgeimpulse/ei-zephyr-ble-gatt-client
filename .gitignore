@@ -1,0 +1,23 @@
+# West workspace (fetched by `west update`)
+zephyr/
+modules/
+bootloader/
+tools/
+.west/
+
+# Build outputs
+build/
+twister-out/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
+**/.DS_Store
