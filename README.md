@@ -5,7 +5,8 @@ A Zephyr application that bridges Edge Impulse inference results to an Android a
 | Mode | Board | How it works |
 |------|-------|-------------|
 | **Relay** (default) | Nordic Thingy:53 | BLE central — connects to an `EI-Golioth` peripheral, subscribes to inference + sensor notifications, re-advertises them to Android via a GATT server |
-| **Local sensor** | Arduino Nano 33 BLE Sense | Reads on-board IMU (and all other sensors) directly, runs an optional EI impulse locally, streams raw data + inference results to Android via BLE GATT server |
+| **Local sensor** | Arduino Nano 33 BLE Sense | Reads on-board LSM9DS1 IMU + HTS221, LPS22HB, APDS9960, runs an optional EI impulse locally, streams raw data + inference results to Android via BLE GATT server |
+| **Local sensor** | Arduino Nesso N1 | Reads on-board BMI270 IMU (ESP32-C6), runs an optional EI impulse locally, streams raw data + inference results to Android via BLE GATT server |
 
 **Compatible with:** [example-standalone-inferencing-zephyr-module](https://github.com/edgeimpulse/example-standalone-inferencing-zephyr-module) — drop a Zephyr model export next to the project and local inference is enabled automatically.
 
@@ -13,16 +14,21 @@ A Zephyr application that bridges Edge Impulse inference results to an Android a
 
 ## Supported boards
 
-| Board | Zephyr ID | Mode |
-|-------|-----------|------|
-| Nordic Thingy:53 | `thingy53/nrf5340/cpuapp` | Relay |
-| Arduino Nano 33 BLE Sense | `arduino_nano_33_ble` | Local sensor |
+| Board | Zephyr ID | Mode | SoC |
+|-------|-----------|------|-----|
+| Nordic Thingy:53 | `thingy53/nrf5340/cpuapp` | Relay | nRF5340 (ARM Cortex-M33) |
+| Arduino Nano 33 BLE Sense | `arduino_nano_33_ble` | Local sensor | nRF52840 (ARM Cortex-M4) |
+| Arduino Nesso N1 | `arduino_nesso_n1` | Local sensor | ESP32-C6 (RISC-V) |
+
+> **Nesso N1 note:** The `arduino_nesso_n1` board was added to Zephyr after v4.0.0.  If `west build` cannot find the board, update the `revision:` in `west.yml` to a newer Zephyr release and re-run `west update`.
 
 Any board with an on-board IMU declared in the Zephyr devicetree can be used in local-sensor mode — add `boards/<board>.conf` with `CONFIG_EI_SENSOR_LOCAL=y` and a matching board overlay.
 
 ---
 
-## Sensors (Arduino Nano 33 BLE Sense)
+## Sensors
+
+### Arduino Nano 33 BLE Sense
 
 All sensors are read in local-sensor mode and streamed as a packed float array over BLE:
 
@@ -36,6 +42,13 @@ All sensors are read in local-sensor mode and streamed as a packed float array o
 | 11 | LPS22HB | Pressure | kPa |
 | 12 | APDS9960 | Proximity | — |
 | 13–15 | APDS9960 | R, G, B | — |
+
+### Arduino Nesso N1
+
+| Index | Sensor | Channel | Unit |
+|-------|--------|---------|------|
+| 0–2 | BMI270 accel | X, Y, Z | m/s² |
+| 3–5 | BMI270 gyro | X, Y, Z | rad/s |
 
 ---
 
@@ -88,6 +101,14 @@ west build --pristine -b thingy53/nrf5340/cpuapp ei-zephyr-ble-gatt-client
 **Arduino Nano 33 BLE Sense — local sensor mode**
 ```bash
 west build --pristine -b arduino_nano_33_ble ei-zephyr-ble-gatt-client
+```
+
+**Arduino Nesso N1 — local sensor mode (ESP32-C6)**
+```bash
+# Fetch ESP32 RF binary blobs once
+west blobs fetch hal_espressif
+
+west build --pristine -b arduino_nesso_n1 ei-zephyr-ble-gatt-client
 ```
 
 ### 4. Flash
@@ -143,7 +164,9 @@ ei-zephyr-ble-gatt-client/
 ├── boards/
 │   ├── thingy53_nrf5340_cpuapp.overlay  # UART config (relay mode)
 │   ├── arduino_nano_33_ble.overlay      # Enable all on-board sensors
-│   └── arduino_nano_33_ble.conf         # Sensor drivers + EI_SENSOR_LOCAL=y
+│   ├── arduino_nano_33_ble.conf         # Sensor drivers + EI_SENSOR_LOCAL=y
+│   ├── arduino_nesso_n1.overlay         # Placeholder (BMI270 already enabled)
+│   └── arduino_nesso_n1.conf           # BMI270 + EI_SENSOR_LOCAL=y (ESP32-C6)
 └── src/
     ├── main.cpp             # Branches on CONFIG_EI_SENSOR_LOCAL at compile time
     ├── ble/

@@ -1,0 +1,8 @@
+/*
+ * Arduino Nesso N1 — devicetree overlay
+ *
+ * The BMI270 6-axis IMU (bosch,bmi270) is already declared and enabled in the
+ * upstream Zephyr board DTS for arduino_nesso_n1, so no extra nodes are needed.
+ * This file is kept as a placeholder for future additions (e.g. pin-mux
+ * adjustments or additional peripheral enables).
+ */
