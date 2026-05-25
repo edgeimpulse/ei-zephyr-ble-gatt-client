@@ -40,6 +40,18 @@ void gatt_server_notify_inference(const inference_result_t *result);
  */
 void gatt_server_notify_sensor_data(const float *data, size_t len);
 
+/**
+ * @brief Current capture label (null-terminated, max 16 bytes).
+ *
+ * Updated by Android via writes to the STATE characteristic. Defaults to
+ * "idle". Use this to gate / tag local data collection.
+ */
+const char *gatt_server_get_label(void);
+
+/** Callback invoked whenever the Android central writes a new label. */
+typedef void (*label_changed_cb_t)(const char *label);
+void gatt_server_register_label_callback(label_changed_cb_t cb);
+
 #ifdef __cplusplus
 }
 #endif

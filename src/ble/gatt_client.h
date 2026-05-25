@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,7 +31,11 @@ extern "C" {
     BT_UUID_128_ENCODE(0x12345678, 0x1234, 0x5678, 0x1234, 0x56789abcdef3)
 
 // Inference result structure
-typedef struct {
+// NOTE: packed so the on-wire layout matches Android's ZephyrBLEClient parser
+//       (52 bytes, timestamp at offset 44). Without __packed__ the compiler
+//       inserts 4 bytes of padding before `timestamp` on both ARM AAPCS and
+//       RISC-V (uint64_t is 8-byte aligned), giving sizeof == 56.
+typedef struct __attribute__((packed)) {
     char label[32];
     float confidence;
     uint32_t dsp_time_ms;

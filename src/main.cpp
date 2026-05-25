@@ -75,7 +75,7 @@ int main(void)
 
 #ifdef CONFIG_EI_SENSOR_LOCAL
     printk("  Mode: Local Sensor Collection\n");
-    printk("  Board: Arduino Nano 33 BLE Sense\n");
+    printk("  Board: %s\n", CONFIG_BOARD);
 #else
     printk("  Mode: BLE Relay (EI-Golioth Monitor)\n");
 #endif

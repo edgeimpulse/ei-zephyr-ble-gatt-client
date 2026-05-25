@@ -18,6 +18,9 @@ project(ei-zephyr-ble-gatt-client)
 # Colorful diagnostics
 zephyr_compile_options(-fdiagnostics-color=always)
 
+# Avoid pulling in __cxa_guard_acquire/release (not provided by minimal C++ runtime)
+zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>)
+
 # Add include directories
 target_include_directories(app PRIVATE
     src

@@ -95,7 +95,7 @@ static uint8_t notify_callback(struct bt_conn *conn,
         }
     } else if (params->value_handle == sensor_handle) {
         if (sensor_cb) {
-            sensor_cb(data, length);
+            sensor_cb(static_cast<const float *>(data), length / sizeof(float));
         }
     }
 
@@ -117,7 +117,6 @@ static int subscribe_inference(struct bt_conn *conn)
     inference_sub_params.value_handle = inference_handle;
     inference_sub_params.ccc_handle = inference_ccc_handle;
     inference_sub_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
-    inference_sub_params.min_interval = BT_GAP_PER_ADV_MIN_INTERVAL;
 
     int err = bt_gatt_subscribe(conn, &inference_sub_params);
     if (err < 0 && err != -EALREADY) {
@@ -144,7 +143,6 @@ static int subscribe_sensor(struct bt_conn *conn)
     sensor_sub_params.value_handle = sensor_handle;
     sensor_sub_params.ccc_handle = sensor_ccc_handle;
     sensor_sub_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
-    sensor_sub_params.min_interval = BT_GAP_PER_ADV_MIN_INTERVAL;
 
     int err = bt_gatt_subscribe(conn, &sensor_sub_params);
     if (err < 0 && err != -EALREADY) {

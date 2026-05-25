@@ -20,7 +20,7 @@ A Zephyr application that bridges Edge Impulse inference results to an Android a
 | Arduino Nano 33 BLE Sense | `arduino_nano_33_ble` | Local sensor | nRF52840 (ARM Cortex-M4) |
 | Arduino Nesso N1 | `arduino_nesso_n1` | Local sensor | ESP32-C6 (RISC-V) |
 
-> **Nesso N1 note:** The `arduino_nesso_n1` board was added to Zephyr after v4.0.0.  If `west build` cannot find the board, update the `revision:` in `west.yml` to a newer Zephyr release and re-run `west update`.
+> **Nesso N1 note:** Build target is `arduino_nesso_n1/esp32c6/hpcore` for the HP core (RISC-V application core).
 
 Any board with an on-board IMU declared in the Zephyr devicetree can be used in local-sensor mode — add `boards/<board>.conf` with `CONFIG_EI_SENSOR_LOCAL=y` and a matching board overlay.
 
@@ -54,9 +54,14 @@ All sensors are read in local-sensor mode and streamed as a packed float array o
 
 ## Prerequisites
 
-- [Zephyr SDK](https://docs.zephyrproject.org/latest/develop/getting_started/index.html) ≥ 0.16
+- [Zephyr SDK](https://docs.zephyrproject.org/latest/develop/getting_started/index.html) ≥ 1.0 (Zephyr `main` requires SDK 1.0+)
+- For Nesso N1: the `riscv64-zephyr-elf` toolchain — install via `./setup.sh -t riscv64-zephyr-elf` from your SDK directory
 - `west` ≥ 1.2
 - CMake ≥ 3.20, Python ≥ 3.8
+- Export `ZEPHYR_SDK_INSTALL_DIR` so CMake finds the right SDK, e.g.:
+  ```bash
+  export ZEPHYR_SDK_INSTALL_DIR=$HOME/zephyr-sdk-1.0.1
+  ```
 
 ---
 
@@ -108,7 +113,7 @@ west build --pristine -b arduino_nano_33_ble ei-zephyr-ble-gatt-client
 # Fetch ESP32 RF binary blobs once
 west blobs fetch hal_espressif
 
-west build --pristine -b arduino_nesso_n1 ei-zephyr-ble-gatt-client
+west build --pristine -b arduino_nesso_n1/esp32c6/hpcore ei-zephyr-ble-gatt-client
 ```
 
 ### 4. Flash
@@ -126,6 +131,27 @@ ls /dev/tty.usbmodem*
 screen /dev/tty.usbmodemXXXX 115200
 # or
 minicom -D /dev/tty.usbmodemXXXX -b 115200
+
+# Nesso N1 (ESP32-C6) — Espressif monitor handles reset + port detection:
+west espressif monitor
+```
+
+Expected boot output on Nesso N1:
+
+```
+*** Booting Zephyr OS build v4.4.0-3391-gc2961410b98f ***
+========================================
+  Edge Impulse BLE GATT Client
+  Mode: Local Sensor Collection
+  Board: arduino_nesso_n1/esp32c6/hpcore
+========================================
+[00:00:00.137,000] <inf> bt_hci_core: HW Variant: ESP32-C6 (0x0005)
+[00:00:00.137,000] <inf> bt_hci_core: Identity: 58:8C:81:50:37:92 (public)
+[00:00:00.137,000] <inf> gatt_client: Bluetooth initialized
+[00:00:00.139,000] <inf> gatt_server: EI GATT server advertising as "EI-Monitor"
+[00:00:00.139,000] <inf> ei_sensor: BMI270 initialised
+Starting local sensor collection (sampling every 10 ms)...
+[00:00:00.139,000] <inf> ei_sensor: Local sensor loop started (10 ms interval)
 ```
 
 ---
@@ -159,14 +185,13 @@ struct inference_result_t {
 ei-zephyr-ble-gatt-client/
 ├── CMakeLists.txt           # Adds optional model/ module before find_package(Zephyr)
 ├── Kconfig                  # EI_SENSOR_LOCAL + EI_SENSOR_SAMPLE_INTERVAL_MS
-├── prj.conf                 # BLE central + peripheral, C++17, logging
-├── west.yml                 # Zephyr v4.0.0 + edge-impulse-sdk-zephyr
+├── prj.conf                 # BLE central + peripheral, C++17, logging, BMI270+EI_SENSOR_LOCAL
+├── west.yml                 # Zephyr main + edge-impulse-sdk-zephyr
 ├── boards/
 │   ├── thingy53_nrf5340_cpuapp.overlay  # UART config (relay mode)
 │   ├── arduino_nano_33_ble.overlay      # Enable all on-board sensors
 │   ├── arduino_nano_33_ble.conf         # Sensor drivers + EI_SENSOR_LOCAL=y
-│   ├── arduino_nesso_n1.overlay         # Placeholder (BMI270 already enabled)
-│   └── arduino_nesso_n1.conf           # BMI270 + EI_SENSOR_LOCAL=y (ESP32-C6)
+│   └── arduino_nesso_n1.overlay         # Placeholder (BMI270 already enabled)
 └── src/
     ├── main.cpp             # Branches on CONFIG_EI_SENSOR_LOCAL at compile time
     ├── ble/

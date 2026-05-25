@@ -27,6 +27,8 @@ static struct bt_uuid_128 inf_chr_uuid =
     BT_UUID_INIT_128(BT_UUID_INFERENCE_CHAR_VAL);
 static struct bt_uuid_128 sensor_chr_uuid =
     BT_UUID_INIT_128(BT_UUID_SENSOR_CHAR_VAL);
+static struct bt_uuid_128 state_chr_uuid =
+    BT_UUID_INIT_128(BT_UUID_STATE_CHAR_VAL);
 
 /* --------------------------------------------------------------------------
  * State
@@ -35,8 +37,14 @@ static inference_result_t last_inference;
 static float              last_sensor_buf[64];
 static size_t             last_sensor_len = 0;
 
+/* Capture label written by Android (e.g. "idle", "circle", "updown"). */
+#define LABEL_MAX_LEN 16
+static char current_label[LABEL_MAX_LEN] = "idle";
+static label_changed_cb_t label_cb = NULL;
+
 static bool inference_notify_enabled = false;
 static bool sensor_notify_enabled    = false;
+static bool state_notify_enabled     = false;
 
 /* Connection to the Android central (NULL when nobody is connected) */
 static struct bt_conn *android_conn = NULL;
@@ -61,6 +69,43 @@ static ssize_t sensor_read_cb(struct bt_conn *conn,
                              last_sensor_len * sizeof(float));
 }
 
+static ssize_t state_read_cb(struct bt_conn *conn,
+                             const struct bt_gatt_attr *attr,
+                             void *buf, uint16_t len, uint16_t offset)
+{
+    return bt_gatt_attr_read(conn, attr, buf, len, offset,
+                             current_label, strlen(current_label));
+}
+
+static ssize_t state_write_cb(struct bt_conn *conn,
+                              const struct bt_gatt_attr *attr,
+                              const void *buf, uint16_t len,
+                              uint16_t offset, uint8_t flags)
+{
+    ARG_UNUSED(conn);
+    ARG_UNUSED(attr);
+    ARG_UNUSED(flags);
+
+    if (offset != 0) {
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
+    }
+    if (len == 0 || len >= LABEL_MAX_LEN) {
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+    }
+
+    memset(current_label, 0, sizeof(current_label));
+    memcpy(current_label, buf, len);
+    current_label[len] = '\0';
+
+    LOG_INF("Label set to \"%s\"", current_label);
+
+    if (label_cb) {
+        label_cb(current_label);
+    }
+
+    return len;
+}
+
 /* --------------------------------------------------------------------------
  * CCC (Client Characteristic Configuration) changed callbacks
  * -------------------------------------------------------------------------- */
@@ -78,6 +123,14 @@ static void sensor_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t val
     sensor_notify_enabled = (value == BT_GATT_CCC_NOTIFY);
     LOG_INF("Sensor notifications %s",
             sensor_notify_enabled ? "enabled" : "disabled");
+}
+
+static void state_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
+{
+    ARG_UNUSED(attr);
+    state_notify_enabled = (value == BT_GATT_CCC_NOTIFY);
+    LOG_INF("State notifications %s",
+            state_notify_enabled ? "enabled" : "disabled");
 }
 
 /* --------------------------------------------------------------------------
@@ -100,6 +153,15 @@ BT_GATT_SERVICE_DEFINE(ei_server_svc,
                            BT_GATT_PERM_READ,
                            sensor_read_cb, NULL, NULL),
     BT_GATT_CCC(sensor_ccc_cfg_changed,
+                BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
+
+    /* Capture-state / label characteristic (writable from Android) */
+    BT_GATT_CHARACTERISTIC(&state_chr_uuid.uuid,
+                           BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
+                           BT_GATT_CHRC_NOTIFY,
+                           BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+                           state_read_cb, state_write_cb, current_label),
+    BT_GATT_CCC(state_ccc_cfg_changed,
                 BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 );
 
@@ -129,7 +191,7 @@ static void android_disconnected(struct bt_conn *conn, uint8_t reason)
         LOG_INF("Android central disconnected (reason %u)", reason);
 
         /* Restart advertising so Android can reconnect */
-        int err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, NULL, 0, NULL, 0);
+        int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, NULL, 0, NULL, 0);
         if (err && err != -EALREADY) {
             LOG_ERR("Adv restart failed: %d", err);
         }
@@ -166,9 +228,19 @@ int gatt_server_init(void)
                 svc_uuid_le, sizeof(svc_uuid_le)),
     };
 
-    int err = bt_le_adv_start(BT_LE_ADV_CONN_NAME,
+    /* Scan response carries the device name so Android scanners that filter
+     * by name (e.g. ScanFilter.setDeviceName("EI-Monitor")) match us. With
+     * BT_LE_ADV_CONN_FAST_1 the controller does NOT auto-insert the name,
+     * so we must add it explicitly. */
+    static const struct bt_data sd[] = {
+        BT_DATA(BT_DATA_NAME_COMPLETE,
+                CONFIG_BT_DEVICE_NAME,
+                sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+    };
+
+    int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1,
                               ad, ARRAY_SIZE(ad),
-                              NULL, 0);
+                              sd, ARRAY_SIZE(sd));
     if (err) {
         LOG_ERR("Advertising start failed: %d", err);
         return err;
@@ -224,9 +296,37 @@ void gatt_server_notify_sensor_data(const float *data, size_t len)
         return;
     }
 
+    /* Cap payload to the negotiated ATT MTU (header is 3 bytes). If the ATT
+     * channel is gone (e.g. central dropped link without a clean disconnect)
+     * bt_gatt_get_mtu returns 0 — drop silently and disable further notifies
+     * until the central re-subscribes via CCC, otherwise we spam the log at
+     * the sample rate. */
+    uint16_t mtu = bt_gatt_get_mtu(android_conn);
+    if (mtu < 4) {
+        sensor_notify_enabled = false;
+        return;
+    }
+    size_t max_floats = (size_t)((mtu - 3) / sizeof(float));
+    size_t send_len   = (len < max_floats) ? len : max_floats;
+
     int err = bt_gatt_notify(android_conn, attr,
-                             last_sensor_buf, len * sizeof(float));
+                             last_sensor_buf, send_len * sizeof(float));
+    if (err == -ENOTCONN || err == -ENOMEM) {
+        /* Subscription / buffers gone — stop until Android re-enables CCC. */
+        sensor_notify_enabled = false;
+        return;
+    }
     if (err) {
         LOG_WRN("Sensor notify failed: %d", err);
     }
+}
+
+const char *gatt_server_get_label(void)
+{
+    return current_label;
+}
+
+void gatt_server_register_label_callback(label_changed_cb_t cb)
+{
+    label_cb = cb;
 }
