@@ -230,7 +230,24 @@ void ei_sensor_run_loop(void)
 	LOG_INF("Local sensor loop started (%d ms interval)",
 		CONFIG_EI_SENSOR_SAMPLE_INTERVAL_MS);
 
+	bool was_connected = false;
 	while (1) {
+		/* Idle until a central connects: don't hammer I2C at 100 Hz,
+		 * keep the radio free for advertising, and avoid power spikes
+		 * that can brown-out the board on USB power. */
+		if (!gatt_server_is_central_connected()) {
+			if (was_connected) {
+				LOG_INF("Central disconnected — pausing sensor loop");
+				was_connected = false;
+			}
+			k_sleep(K_MSEC(200));
+			continue;
+		}
+		if (!was_connected) {
+			LOG_INF("Central connected — resuming sensor loop");
+			was_connected = true;
+		}
+
 		n = ei_sensor_collect(buf, SENSOR_BUF_LEN);
 		if (n < 0) {
 			LOG_WRN("IMU read failed: %d — retrying", n);

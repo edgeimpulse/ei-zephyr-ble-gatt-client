@@ -9,6 +9,8 @@
 #ifndef GATT_SERVER_H
 #define GATT_SERVER_H
 
+#include <stdbool.h>
+
 #include "gatt_client.h"
 
 #ifdef __cplusplus
@@ -51,6 +53,15 @@ const char *gatt_server_get_label(void);
 /** Callback invoked whenever the Android central writes a new label. */
 typedef void (*label_changed_cb_t)(const char *label);
 void gatt_server_register_label_callback(label_changed_cb_t cb);
+
+/**
+ * @brief Whether an Android central is currently connected.
+ *
+ * Used by the local sensor loop to avoid running the I2C/SPI sample fetch
+ * at 100 Hz when nobody is listening, which keeps the radio free for
+ * advertising and avoids power spikes that can brown-out the board.
+ */
+bool gatt_server_is_central_connected(void);
 
 #ifdef __cplusplus
 }

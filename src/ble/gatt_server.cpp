@@ -330,3 +330,8 @@ void gatt_server_register_label_callback(label_changed_cb_t cb)
 {
     label_cb = cb;
 }
+
+bool gatt_server_is_central_connected(void)
+{
+    return android_conn != NULL;
+}
