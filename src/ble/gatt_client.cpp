@@ -26,13 +26,23 @@ static struct bt_uuid_128 state_char_uuid = BT_UUID_INIT_128(BT_UUID_STATE_CHAR_
 // Connection and discovery state
 static struct bt_conn *default_conn = NULL;
 static struct bt_gatt_discover_params discover_params;
-static struct bt_gatt_subscribe_params subscribe_params;
+static struct bt_gatt_subscribe_params inference_sub_params;
+static struct bt_gatt_subscribe_params sensor_sub_params;
 
 // Characteristic handles
 static uint16_t inference_handle = 0;
 static uint16_t sensor_handle = 0;
 static uint16_t state_handle = 0;
 static uint16_t inference_ccc_handle = 0;
+static uint16_t sensor_ccc_handle = 0;
+
+// Track which characteristic discovery is currently in flight so the
+// descriptor-discovery callback can attribute the CCC handle correctly.
+static enum {
+    CHAR_NONE,
+    CHAR_INFERENCE,
+    CHAR_SENSOR,
+} current_discover_char = CHAR_NONE;
 
 // Callbacks
 static inference_callback_t inference_cb = NULL;
@@ -83,6 +93,10 @@ static uint8_t notify_callback(struct bt_conn *conn,
         if (inference_cb) {
             inference_cb(&result);
         }
+    } else if (params->value_handle == sensor_handle) {
+        if (sensor_cb) {
+            sensor_cb(data, length);
+        }
     }
 
     return BT_GATT_ITER_CONTINUE;
@@ -94,24 +108,51 @@ static uint8_t notify_callback(struct bt_conn *conn,
 static int subscribe_inference(struct bt_conn *conn)
 {
     if (!inference_ccc_handle) {
-        LOG_ERR("CCC handle not discovered");
+        LOG_ERR("Inference CCC handle not discovered");
         return -EINVAL;
     }
 
-    subscribe_params.notify = notify_callback;
-    subscribe_params.value = BT_GATT_CCC_NOTIFY;
-    subscribe_params.value_handle = inference_handle;
-    subscribe_params.ccc_handle = inference_ccc_handle;
-    subscribe_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
-    subscribe_params.min_interval = BT_GAP_PER_ADV_MIN_INTERVAL;
+    inference_sub_params.notify = notify_callback;
+    inference_sub_params.value = BT_GATT_CCC_NOTIFY;
+    inference_sub_params.value_handle = inference_handle;
+    inference_sub_params.ccc_handle = inference_ccc_handle;
+    inference_sub_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
+    inference_sub_params.min_interval = BT_GAP_PER_ADV_MIN_INTERVAL;
 
-    int err = bt_gatt_subscribe(conn, &subscribe_params);
-    if (err < 0) {
-        LOG_ERR("Subscribe failed: %d", err);
+    int err = bt_gatt_subscribe(conn, &inference_sub_params);
+    if (err < 0 && err != -EALREADY) {
+        LOG_ERR("Subscribe (inference) failed: %d", err);
         return err;
     }
 
     LOG_INF("Subscribed to inference notifications");
+    return 0;
+}
+
+/**
+ * @brief Subscribe to sensor data notifications (raw IMU windows)
+ */
+static int subscribe_sensor(struct bt_conn *conn)
+{
+    if (!sensor_ccc_handle) {
+        LOG_WRN("Sensor CCC handle not discovered \u2014 skipping sensor subscription");
+        return -EINVAL;
+    }
+
+    sensor_sub_params.notify = notify_callback;
+    sensor_sub_params.value = BT_GATT_CCC_NOTIFY;
+    sensor_sub_params.value_handle = sensor_handle;
+    sensor_sub_params.ccc_handle = sensor_ccc_handle;
+    sensor_sub_params.end_handle = BT_ATT_LAST_ATTRIBUTE_HANDLE;
+    sensor_sub_params.min_interval = BT_GAP_PER_ADV_MIN_INTERVAL;
+
+    int err = bt_gatt_subscribe(conn, &sensor_sub_params);
+    if (err < 0 && err != -EALREADY) {
+        LOG_ERR("Subscribe (sensor) failed: %d", err);
+        return err;
+    }
+
+    LOG_INF("Subscribed to sensor data notifications");
     return 0;
 }
 
@@ -125,10 +166,15 @@ static uint8_t discover_func(struct bt_conn *conn,
     if (!attr) {
         LOG_INF("Discovery complete");
         memset(params, 0, sizeof(*params));
+        current_discover_char = CHAR_NONE;
 
-        // Subscribe to notifications
+        // Subscribe to notifications. Sensor subscription is best-effort — some
+        // peripherals don't expose a sensor characteristic and that is OK.
         if (inference_handle && inference_ccc_handle) {
             subscribe_inference(conn);
+        }
+        if (sensor_handle && sensor_ccc_handle) {
+            subscribe_sensor(conn);
         }
 
         return BT_GATT_ITER_STOP;
@@ -158,7 +204,8 @@ static uint8_t discover_func(struct bt_conn *conn,
             LOG_INF("Found inference characteristic");
             inference_handle = chrc->value_handle;
 
-            // Discover CCC descriptor
+            // Discover CCC descriptor for the inference characteristic
+            current_discover_char = CHAR_INFERENCE;
             discover_params.uuid = BT_UUID_GATT_CCC;
             discover_params.start_handle = chrc->value_handle + 1;
             discover_params.type = BT_GATT_DISCOVER_DESCRIPTOR;
@@ -168,6 +215,16 @@ static uint8_t discover_func(struct bt_conn *conn,
         } else if (!bt_uuid_cmp(chrc->uuid, &sensor_char_uuid.uuid)) {
             LOG_INF("Found sensor characteristic");
             sensor_handle = chrc->value_handle;
+
+            // Discover CCC descriptor for the sensor characteristic so we can
+            // also subscribe to raw IMU notifications.
+            current_discover_char = CHAR_SENSOR;
+            discover_params.uuid = BT_UUID_GATT_CCC;
+            discover_params.start_handle = chrc->value_handle + 1;
+            discover_params.type = BT_GATT_DISCOVER_DESCRIPTOR;
+            bt_gatt_discover(conn, &discover_params);
+
+            return BT_GATT_ITER_STOP;
         } else if (!bt_uuid_cmp(chrc->uuid, &state_char_uuid.uuid)) {
             LOG_INF("Found state characteristic");
             state_handle = chrc->value_handle;
@@ -176,8 +233,21 @@ static uint8_t discover_func(struct bt_conn *conn,
 
     // Check for CCC descriptor
     if (params->type == BT_GATT_DISCOVER_DESCRIPTOR) {
-        inference_ccc_handle = attr->handle;
-        LOG_INF("Found CCC descriptor: handle %u", inference_ccc_handle);
+        if (current_discover_char == CHAR_INFERENCE) {
+            inference_ccc_handle = attr->handle;
+            LOG_INF("Found inference CCC descriptor: handle %u", inference_ccc_handle);
+        } else if (current_discover_char == CHAR_SENSOR) {
+            sensor_ccc_handle = attr->handle;
+            LOG_INF("Found sensor CCC descriptor: handle %u", sensor_ccc_handle);
+        }
+
+        // Resume characteristic discovery to find the next char in the service.
+        current_discover_char = CHAR_NONE;
+        discover_params.uuid = NULL;
+        discover_params.start_handle = attr->handle + 1;
+        discover_params.type = BT_GATT_DISCOVER_CHARACTERISTIC;
+        bt_gatt_discover(conn, &discover_params);
+        return BT_GATT_ITER_STOP;
     }
 
     return BT_GATT_ITER_CONTINUE;
@@ -192,6 +262,8 @@ static int start_discovery(struct bt_conn *conn)
     sensor_handle = 0;
     state_handle = 0;
     inference_ccc_handle = 0;
+    sensor_ccc_handle = 0;
+    current_discover_char = CHAR_NONE;
 
     memset(&discover_params, 0, sizeof(discover_params));
 
