@@ -45,7 +45,10 @@ This firmware exposes one custom service with three characteristics:
 
 The Android app subscribes to the **Inference result** and **Sensor data** characteristics on connect (enabling notifications via the CCC descriptor), then receives a callback every time the firmware calls `gatt_server_notify_*()`.
 
-> Further reading: [Introduction to Bluetooth Low Energy — GATT](https://learn.adafruit.com/introduction-to-bluetooth-low-energy/gatt) by Kevin Townsend, Adafruit.
+> **References**
+> - [Introduction to Bluetooth Low Energy — GATT](https://learn.adafruit.com/introduction-to-bluetooth-low-energy/gatt) — Kevin Townsend, Adafruit
+> - [Bluetooth GATT Specification Supplement (GSS)](https://bitbucket.org/bluetooth-SIG/public/src/main/gss/) — Bluetooth SIG official characteristic and descriptor definitions
+> - [Bluetooth Core Specification](https://www.bluetooth.com/specifications/specs/core-specification/) — Vol 3, Part G (ATT) and Part F (GATT) for the full protocol spec
 
 ---
 
