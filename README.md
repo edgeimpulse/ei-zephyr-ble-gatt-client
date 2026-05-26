@@ -12,14 +12,42 @@ A Zephyr application that bridges Edge Impulse inference results to an Android a
 
 ---
 
-This firmware is designed to broadcast sensor data and inference results over BLE for gather on a [Generic ATTribute Profile, and it defines the way that two Bluetooth Low Energy devices transfer data back and forth using concepts called Services and Characteristics. It makes use of a generic data protocol called the Attribute Protocol (ATT)](https://learn.adafruit.com/introduction-to-bluetooth-low-energy/gatt) client server
+## How GATT works
 
-<img width="1948" height="1478" alt="image" src="https://github.com/user-attachments/assets/6af6454b-030f-477e-9087-448348477565" />
+**GATT** (Generic ATTribute Profile) is the protocol BLE devices use to exchange data once a connection is established. It sits on top of the low-level ATT (Attribute Protocol) and organises everything into a hierarchy of **Services** and **Characteristics**.
 
+<img width="518" height="1242" alt="GATT profile hierarchy: Profile → Services → Characteristics" src="https://github.com/user-attachments/assets/fe9a57fe-0306-407d-a8ad-8bc32a3e7bcf" />
 
-<img width="3116" height="1858" alt="image" src="https://github.com/user-attachments/assets/b0b822b3-55c0-4fea-8d77-d2d2ec1131bb" />
-<img width="518" height="1242" alt="image" src="https://github.com/user-attachments/assets/fe9a57fe-0306-407d-a8ad-8bc32a3e7bcf" />
+**Roles: Server and Client**
 
+| Role | Who | What it does |
+|------|-----|-------------|
+| **GATT Server** | This firmware (Zephyr board) | Holds the ATT table — defines Services and Characteristics, responds to reads, sends notifications |
+| **GATT Client** | Android app | Initiates all transactions — discovers services, reads values, subscribes to notifications |
+
+A peripheral can only be connected to **one** central at a time. Once connected it stops advertising, so no other device can see it until the connection drops.
+
+<img width="1948" height="1478" alt="BLE connected network topology: one central connected to multiple peripherals" src="https://github.com/user-attachments/assets/6af6454b-030f-477e-9087-448348477565" />
+
+**Services and Characteristics in this firmware**
+
+Each **Service** is identified by a 128-bit UUID and groups related **Characteristics** together. A Characteristic holds a single value (or a packed struct) and can be read directly or pushed to the client via *notifications* without the client polling.
+
+<img width="3116" height="1858" alt="GATT transaction flow: client reads and subscribes, server notifies" src="https://github.com/user-attachments/assets/b0b822b3-55c0-4fea-8d77-d2d2ec1131bb" />
+
+This firmware exposes one custom service with three characteristics:
+
+| Characteristic | UUID suffix | Properties | Payload |
+|---|---|---|---|
+| Inference result | `…def1` | READ + NOTIFY | `inference_result_t` (52 bytes) |
+| Sensor data | `…def2` | READ + NOTIFY | packed `float[]` |
+| Device state | `…def3` | READ + WRITE | UTF-8 label string |
+
+The Android app subscribes to the **Inference result** and **Sensor data** characteristics on connect (enabling notifications via the CCC descriptor), then receives a callback every time the firmware calls `gatt_server_notify_*()`.
+
+> Further reading: [Introduction to Bluetooth Low Energy — GATT](https://learn.adafruit.com/introduction-to-bluetooth-low-energy/gatt) by Kevin Townsend, Adafruit.
+
+---
 
 ## Supported boards
 
