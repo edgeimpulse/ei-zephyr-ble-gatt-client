@@ -12,6 +12,15 @@ A Zephyr application that bridges Edge Impulse inference results to an Android a
 
 ---
 
+This firmware is designed to broadcast sensor data and inference results over BLE for gather on a [Generic ATTribute Profile, and it defines the way that two Bluetooth Low Energy devices transfer data back and forth using concepts called Services and Characteristics. It makes use of a generic data protocol called the Attribute Protocol (ATT)](https://learn.adafruit.com/introduction-to-bluetooth-low-energy/gatt) client server
+
+<img width="1948" height="1478" alt="image" src="https://github.com/user-attachments/assets/6af6454b-030f-477e-9087-448348477565" />
+
+
+<img width="3116" height="1858" alt="image" src="https://github.com/user-attachments/assets/b0b822b3-55c0-4fea-8d77-d2d2ec1131bb" />
+<img width="518" height="1242" alt="image" src="https://github.com/user-attachments/assets/fe9a57fe-0306-407d-a8ad-8bc32a3e7bcf" />
+
+
 ## Supported boards
 
 | Board | Zephyr ID | Mode | SoC |
